@@ -128,8 +128,6 @@ int main(int argc, char *argv[]){
         }
       } else{
         response = "HTTP/1.1 404 Not Found\r\n\r\n";
-        response.push_back('H');
-        response.push_back('I');
         if((nbytes = send(new_fd, response.c_str(), response.length(), 0)) == -1){
           perror("send");
         }

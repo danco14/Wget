@@ -16,7 +16,7 @@
 using namespace std;
 
 #define PORT "80"
-#define MAXBUFSIZE 100000
+#define MAXBUFSIZE 1000000
 
 int main(int argc, char *argv[]){
   int sockfd, nbytes = 0;
@@ -99,22 +99,33 @@ int main(int argc, char *argv[]){
   nbytes = 0;
   int header = 0;
   flag = 0;
-  while((response = recv(sockfd, buf, MAXBUFSIZE-1, 0)) > 0){
-    for(int i = 0; i < response; i++){
-      // Process header
-      if(buf[i] == '\n' && (flag == 0 || flag == 1 ) && !header){
-        flag++;
-        if(flag == 2) header = 1;
-      } else if(flag == 2){
-        file.write(buf+i, 1);
-      }
-    }
-    nbytes += response;
-  }
+  // while((response = recv(sockfd, buf, MAXBUFSIZE-1, 0)) > 0){
+  //   for(int i = 0; i < response; i++){
+  //     // Process header
+  //     if(buf[i] == '\n' && (flag == 0 || flag == 1 ) && !header){
+  //       flag++;
+  //       if(flag == 2) header = 1;
+  //     } else if(flag == 2){
+  //       file.write(buf+i, 1);
+  //     }
+  //   }
+  //   nbytes += response;
+  // }
+  response = recv(sockfd, buf, MAXBUFSIZE-1, 0);
   if(response == -1){
     perror("recv");
     exit(1);
   }
+  for(int i = 0; i < response; i++){
+    // Process header
+    if(buf[i] == '\n' && (flag == 0 || flag == 1 ) && !header){
+      flag++;
+      if(flag == 2) header = 1;
+    } else if(flag == 2){
+      file.write(buf+i, 1);
+    }
+  }
+  nbytes += response;
 
   file.close();
 
