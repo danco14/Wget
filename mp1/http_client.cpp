@@ -19,9 +19,10 @@ using namespace std;
 #define MAXBUFSIZE 1000000
 
 int main(int argc, char *argv[]){
-  int sockfd, nbytes = 0;
-	struct addrinfo hints, *servinfo;
+  int sockfd, nbytes;
+	struct addrinfo hints, *servinfo, *p;
 	int rv;
+	char s[INET6_ADDRSTRLEN];
   string path;
   string hostname;
   string port;
@@ -58,18 +59,25 @@ int main(int argc, char *argv[]){
 		return 1;
 	}
 
-  if ((sockfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol)) == -1) {
-    perror("socket");
-    exit(1);
-  }
+  // loop through all the results and connect to the first we can
+	for(p = servinfo; p != NULL; p = p->ai_next) {
+		if ((sockfd = socket(p->ai_family, p->ai_socktype,
+				p->ai_protocol)) == -1) {
+			perror("client: socket");
+			continue;
+		}
 
-  if (connect(sockfd, servinfo->ai_addr, servinfo->ai_addrlen) == -1) {
-    close(sockfd);
-    perror("connect");
-    exit(1);
-  }
+		if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+			close(sockfd);
+			perror("client: connect");
+			continue;
+		}
+		//printf("%d\n",sockfd);l
+		break;
+	}
 
-	if (servinfo == NULL) {
+	if (p == NULL) {
+		fprintf(stderr, "client: failed to connect\n");
 		return 2;
 	}
 
@@ -97,35 +105,36 @@ int main(int argc, char *argv[]){
 
   // Receive file
   nbytes = 0;
-  int header = 0;
+  // int header = 0;
   flag = 0;
-  // while((response = recv(sockfd, buf, MAXBUFSIZE-1, 0)) > 0){
-  //   for(int i = 0; i < response; i++){
-  //     // Process header
-  //     if(buf[i] == '\n' && (flag == 0 || flag == 1 ) && !header){
-  //       flag++;
-  //       if(flag == 2) header = 1;
-  //     } else if(flag == 2){
-  //       file.write(buf+i, 1);
-  //     }
-  //   }
-  //   nbytes += response;
-  // }
+  while((response = recv(sockfd, buf, MAXBUFSIZE-1, 0)) > 0){
+    for(int i = 0; i < response; i++){
+      // Process header
+      if(buf[i] == '\n' && buf[i-1] == '\r' && buf[i-2] == '\n' && buf[i-3] == '\r' && !flag){
+        // flag++;
+        flag = 1;
+        // if(flag == 2) header = 1;
+      } else if(flag == 1){
+        file.write(buf+i, 1);
+      }
+    }
+    nbytes += response;
+  }
   response = recv(sockfd, buf, MAXBUFSIZE-1, 0);
   if(response == -1){
     perror("recv");
     exit(1);
   }
-  for(int i = 0; i < response; i++){
-    // Process header
-    if(buf[i] == '\n' && (flag == 0 || flag == 1 ) && !header){
-      flag++;
-      if(flag == 2) header = 1;
-    } else if(flag == 2){
-      file.write(buf+i, 1);
-    }
-  }
-  nbytes += response;
+  // buf[response] = '\0';
+  // for(int i = 0; i < response; i++){
+  //   // Process header
+  //   if(buf[i] == '\n' && buf[i-1] == '\r' && buf[i-2] == '\n' && buf[i-3] == '\r' && !flag){
+  //     flag = 1;
+  //   } else if(flag == 1){
+  //     file.write(buf+i, 1);
+  //   }
+  // }
+  // nbytes += response;
 
   file.close();
 

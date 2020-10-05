@@ -18,14 +18,20 @@
 
 using namespace std;
 
+void sigchld_handler(int s)
+{
+	while(waitpid(-1, NULL, WNOHANG) > 0);
+}
+
 int main(int argc, char *argv[]){
-  int sockfd, new_fd;
-	struct addrinfo hints, *servinfo;
-	struct sockaddr_storage their_addr;
+  int sockfd, new_fd;  // listen on sock_fd, new connection on new_fd
+	struct addrinfo hints, *servinfo, *p;
+	struct sockaddr_storage their_addr; // connector's address information
 	socklen_t sin_size;
+	struct sigaction sa;
 	int yes=1;
+	char s[INET6_ADDRSTRLEN];
 	int rv;
-  string response;
   int nbytes;
   ifstream file;
   string fname;
@@ -46,23 +52,30 @@ int main(int argc, char *argv[]){
     return 1;
 	}
 
-  if ((sockfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol)) == -1) {
-    perror("socket");
-    exit(1);
-  }
+  for(p = servinfo; p != NULL; p = p->ai_next) {
+		if ((sockfd = socket(p->ai_family, p->ai_socktype,
+				p->ai_protocol)) == -1) {
+			perror("server: socket");
+			continue;
+		}
 
-  if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
-    perror("opt");
-    exit(1);
-  }
+		if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes,
+				sizeof(int)) == -1) {
+			perror("setsockopt");
+			exit(1);
+		}
 
-  if (bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen) == -1) {
-    close(sockfd);
-    perror("bind");
-    exit(1);
-  }
+		if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+			close(sockfd);
+			perror("server: bind");
+			continue;
+		}
 
-  if (servinfo == NULL)  {
+		break;
+	}
+
+	if (p == NULL)  {
+		fprintf(stderr, "server: failed to bind\n");
 		return 2;
 	}
 
@@ -70,6 +83,14 @@ int main(int argc, char *argv[]){
 
   if (listen(sockfd, BACKLOG) == -1) {
 		perror("listen");
+		exit(1);
+	}
+
+  sa.sa_handler = sigchld_handler; // reap all dead processes
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_RESTART;
+	if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+		perror("sigaction");
 		exit(1);
 	}
 
@@ -113,21 +134,28 @@ int main(int argc, char *argv[]){
         int header = 0;
         // Loop to send package in chunks
         while(total_sent < size){
-          int chunk = ((size - total_sent) > MAXBUFSIZE) ? MAXBUFSIZE : (size - total_sent);
+          string response;
+          int chunk = ((size - total_sent) > (MAXBUFSIZE-1)) ? (MAXBUFSIZE-1) : (size - total_sent);
+          if(!header){
+            response = http_header;
+            chunk -= http_header.length();
+          }
           int length = !header ? http_header.length() + chunk : chunk;
           file.read(buf, chunk);
-          response = !header ? http_header : "";
           for(int i = 0; i < chunk; i++){
             response.push_back(buf[i]);
           }
-          total_sent += chunk;
+          // if(!header) memcpy(response + http_header.length(), buf, chunk - http_header.length());
+          // else memcpy(response, buf, chunk);
+          total_sent += length - (length - chunk);
+          cout << chunk << " " << length << " " << total_sent << "\n";
           if((nbytes = send(new_fd, response.c_str(), length, 0)) == -1){
             perror("send");
           }
           header = 1;
         }
       } else{
-        response = "HTTP/1.1 404 Not Found\r\n\r\n";
+        string response = "HTTP/1.1 404 Not Found\r\n\r\nError:";
         if((nbytes = send(new_fd, response.c_str(), response.length(), 0)) == -1){
           perror("send");
         }
