@@ -122,7 +122,7 @@ int main(int argc, char *argv[]){
         }
       }
 
-      file.open(fname.c_str(), ios::in | ios::binary);
+      file.open(fname.c_str(), ios::in);
       file.seekg(0, file.end);
       int size = file.tellg();
       int total_sent = 0;
@@ -145,10 +145,7 @@ int main(int argc, char *argv[]){
           for(int i = 0; i < chunk; i++){
             response.push_back(buf[i]);
           }
-          // if(!header) memcpy(response + http_header.length(), buf, chunk - http_header.length());
-          // else memcpy(response, buf, chunk);
           total_sent += length - (length - chunk);
-          cout << chunk << " " << length << " " << total_sent << "\n";
           if((nbytes = send(new_fd, response.c_str(), length, 0)) == -1){
             perror("send");
           }

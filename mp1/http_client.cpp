@@ -101,7 +101,7 @@ int main(int argc, char *argv[]){
 
   cout << "Downloading...\n";
 
-  file.open("output", ios::out | ios::binary);
+  file.open("output", ios::out);
 
   // Receive file
   nbytes = 0;
@@ -120,7 +120,7 @@ int main(int argc, char *argv[]){
     }
     nbytes += response;
   }
-  response = recv(sockfd, buf, MAXBUFSIZE-1, 0);
+  // response = recv(sockfd, buf, MAXBUFSIZE-1, 0);
   if(response == -1){
     perror("recv");
     exit(1);
