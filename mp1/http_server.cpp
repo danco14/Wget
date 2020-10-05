@@ -153,7 +153,7 @@ int main(int argc, char *argv[]){
         //   header = 1;
         // }
         response = http_header;
-        file.read(buf, MAXBUFSIZE-1-http_header.length());
+        file.read(buf, MAXBUFSIZE-1);
         for(int i = 0; i < file.gcount(); i++){
           response.push_back(buf[i]);
         }
