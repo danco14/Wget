@@ -20,10 +20,8 @@ using namespace std;
 
 int main(int argc, char *argv[]){
   int sockfd, nbytes = 0;
-	struct addrinfo hints, *servinfo, *p;
+	struct addrinfo hints, *servinfo;
 	int rv;
-
-  // Variables to hold input
   string path;
   string hostname;
   string port;
@@ -56,76 +54,71 @@ int main(int argc, char *argv[]){
   }
 
   if ((rv = getaddrinfo(hostname.c_str(), port.c_str(), &hints, &servinfo)) != 0) {
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+		perror("addr");
 		return 1;
 	}
 
-  for(p = servinfo; p != NULL; p = p->ai_next) {
-		if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
-			perror("client: socket");
-			continue;
-		}
+  if ((sockfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol)) == -1) {
+    perror("socket");
+    exit(1);
+  }
 
-		if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-			close(sockfd);
-			perror("client: connect");
-			continue;
-		}
+  if (connect(sockfd, servinfo->ai_addr, servinfo->ai_addrlen) == -1) {
+    close(sockfd);
+    perror("connect");
+    exit(1);
+  }
 
-		break;
-	}
-
-	if (p == NULL) {
-		fprintf(stderr, "client: failed to connect\n");
+	if (servinfo == NULL) {
 		return 2;
 	}
 
 	freeaddrinfo(servinfo);
 
   // Create HTTP request
-  http_request = "GET " + path + " HTTP/1.1\r\n" + "Host: " + hostname + ":" + port + "\r\n\r\n";
+  http_request = "GET " + path + " HTTP/1.1\r\n" + "Host: " + hostname + ":" + port
+  + "\r\n" + "Connection: Close\r\n\r\n";
 
   cout << "Sending request\n";
 
   // Send HTTP request
-  while(1){
-    response = send(sockfd, http_request.c_str(), strlen(http_request.c_str()), 0);
-
-    if(response == -1){
-      perror("send");
-      exit(1);
-    }
-
+  while((response = send(sockfd, http_request.c_str(), strlen(http_request.c_str()), 0)) > 0){
     nbytes += response;
-
     if(nbytes >= strlen(http_request.c_str())) break;
+  }
+  if(response == -1){
+    perror("send");
+    exit(1);
   }
 
   cout << "Downloading...\n";
 
+  file.open("output", ios::out | ios::binary);
+
   // Receive file
-  if((nbytes = recv(sockfd, buf, MAXBUFSIZE-1, 0)) == -1){
+  nbytes = 0;
+  int header = 0;
+  flag = 0;
+  while((response = recv(sockfd, buf, MAXBUFSIZE-1, 0)) > 0){
+    for(int i = 0; i < response; i++){
+      // Process header
+      if(buf[i] == '\n' && (flag == 0 || flag == 1 ) && !header){
+        flag++;
+        if(flag == 2) header = 1;
+      } else if(flag == 2){
+        file.write(buf+i, 1);
+      }
+    }
+    nbytes += response;
+  }
+  if(response == -1){
     perror("recv");
     exit(1);
   }
 
-  buf[nbytes] = '\0';
+  file.close();
 
   cout << "Downloaded: " << nbytes << " bytes\n";
-
-  file.open("output", ios::out);
-
-  flag = 0;
-  for(int i=0; i < MAXBUFSIZE; i++){
-    if(buf[i] == '\n' && flag == 0){
-      flag = 1;
-    } else if(flag != 0){
-      file << buf + i;
-      break;
-    }
-  }
-
-  file.close();
 
   close(sockfd);
 

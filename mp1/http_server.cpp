@@ -13,25 +13,18 @@
 #include <signal.h>
 #include <fstream>
 
-#define MAXBUFSIZE 100000
-#define BACKLOG 20
+#define MAXBUFSIZE 500000
+#define BACKLOG 1000
 
 using namespace std;
 
-void sigchld_handler(int s)
-{
-	while(waitpid(-1, NULL, WNOHANG) > 0);
-}
-
 int main(int argc, char *argv[]){
   int sockfd, new_fd;
-	struct addrinfo hints, *servinfo, *p;
+	struct addrinfo hints, *servinfo;
 	struct sockaddr_storage their_addr;
 	socklen_t sin_size;
-	struct sigaction sa;
 	int yes=1;
 	int rv;
-  string http_header;
   string response;
   int nbytes;
   ifstream file;
@@ -49,35 +42,27 @@ int main(int argc, char *argv[]){
 	hints.ai_flags = AI_PASSIVE;
 
   if ((rv = getaddrinfo(NULL, argv[1], &hints, &servinfo)) != 0) {
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-		return 1;
+    perror("addr");
+    return 1;
 	}
 
-  // loop through all the results and bind to the first we can
-	for(p = servinfo; p != NULL; p = p->ai_next) {
-		if ((sockfd = socket(p->ai_family, p->ai_socktype,
-				p->ai_protocol)) == -1) {
-			perror("server: socket");
-			continue;
-		}
+  if ((sockfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol)) == -1) {
+    perror("socket");
+    exit(1);
+  }
 
-		if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes,
-				sizeof(int)) == -1) {
-			perror("setsockopt");
-			exit(1);
-		}
+  if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
+    perror("opt");
+    exit(1);
+  }
 
-		if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-			close(sockfd);
-			perror("server: bind");
-			continue;
-		}
+  if (bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen) == -1) {
+    close(sockfd);
+    perror("bind");
+    exit(1);
+  }
 
-		break;
-	}
-
-  if (p == NULL)  {
-		fprintf(stderr, "server: failed to bind\n");
+  if (servinfo == NULL)  {
 		return 2;
 	}
 
@@ -88,16 +73,8 @@ int main(int argc, char *argv[]){
 		exit(1);
 	}
 
-  sa.sa_handler = sigchld_handler; // reap all dead processes
-	sigemptyset(&sa.sa_mask);
-	sa.sa_flags = SA_RESTART;
-	if (sigaction(SIGCHLD, &sa, NULL) == -1) {
-		perror("sigaction");
-		exit(1);
-	}
-
   while(1){
-		sin_size = sizeof their_addr;
+		sin_size = sizeof(their_addr);
 		new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
 		if (new_fd == -1) {
 			perror("accept");
@@ -123,18 +100,38 @@ int main(int argc, char *argv[]){
           fname.push_back(temp[i]);
         }
       }
-      cout << fname;
-      file.open(fname.c_str(), ios::in);
+
+      file.open(fname.c_str(), ios::in | ios::binary);
+      file.seekg(0, file.end);
+      int size = file.tellg();
+      int total_sent = 0;
+      file.seekg(0, file.beg);
+
+      // File is either found or not found
       if(file.is_open()){
-        http_header = "HTTP/1.1 200 OK\r\n";
-        file >> buf;
-        response = http_header + buf + "\n";
-        if((nbytes = send(new_fd, response.c_str(), strlen(response.c_str()), 0)) == -1){
-          perror("send");
+        string http_header = "HTTP/1.1 200 OK\r\n\r\n";
+        int header = 0;
+        // Loop to send package in chunks
+        while(total_sent < size){
+          int chunk = ((size - total_sent) > MAXBUFSIZE) ? MAXBUFSIZE : (size - total_sent);
+          int length = !header ? http_header.length() + chunk : chunk;
+          file.read(buf, chunk);
+          response = !header ? http_header : "";
+          for(int i = 0; i < chunk; i++){
+            response.push_back(buf[i]);
+          }
+          total_sent += chunk;
+          if(total_sent == size){
+            response.push_back('\0');
+          }
+          if((nbytes = send(new_fd, response.c_str(), length, 0)) == -1){
+            perror("send");
+          }
+          header = 1;
         }
       } else{
-        http_header = "HTTP/1.1 404 Not Found\r\n\r\n";
-        if((nbytes = send(new_fd, http_header.c_str(), strlen(http_header.c_str()), 0)) == -1){
+        response = "HTTP/1.1 404 Not Found\r\n\r\n";
+        if((nbytes = send(new_fd, response.c_str(), response.length(), 0)) == -1){
           perror("send");
         }
       }
