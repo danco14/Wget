@@ -13,7 +13,7 @@
 #include <signal.h>
 #include <fstream>
 
-#define MAXBUFSIZE 1000000
+#define MAXBUFSIZE 1024*1024
 #define BACKLOG 1000
 
 using namespace std;
@@ -125,32 +125,42 @@ int main(int argc, char *argv[]){
       file.open(fname.c_str(), ios::in);
       file.seekg(0, file.end);
       int size = file.tellg();
-      int total_sent = 0;
+      // int total_sent = 0;
       file.seekg(0, file.beg);
 
       // File is either found or not found
       if(file.is_open()){
         string http_header = "HTTP/1.1 200 OK\r\n\r\n";
-        int header = 0;
+        // int header = 0;
         // Loop to send package in chunks
-        while(total_sent < size){
-          string response;
-          int chunk = ((size - total_sent) > (MAXBUFSIZE-1)) ? (MAXBUFSIZE-1) : (size - total_sent);
-          if(!header){
-            response = http_header;
-            chunk -= http_header.length();
-          }
-          int length = !header ? http_header.length() + chunk : chunk;
-          file.read(buf, chunk);
-          for(int i = 0; i < chunk; i++){
-            response.push_back(buf[i]);
-          }
-          total_sent += length - (length - chunk);
-          if((nbytes = send(new_fd, response.c_str(), length, 0)) == -1){
+        // while(total_sent < size){
+        string response;
+        // cout << http_header.length();
+        //   int chunk = ((size - total_sent) > (MAXBUFSIZE-1)) ? (MAXBUFSIZE-1) : (size - total_sent);
+        //   if(!header){
+        //     response = http_header;
+        //     chunk -= http_header.length();
+        //   }
+        //   int length = !header ? http_header.length() + chunk : chunk;
+        //   file.read(buf, chunk);
+        //   for(int i = 0; i < chunk; i++){
+        //     response.push_back(buf[i]);
+        //   }
+        //   total_sent += length - (length - chunk);
+        //   if((nbytes = send(new_fd, response.c_str(), length, 0)) == -1){
+        //     perror("send");
+        //   }
+        //   header = 1;
+        // }
+        response = http_header;
+        file.read(buf, MAXBUFSIZE-1-http_header.length());
+        for(int i = 0; i < file.gcount(); i++){
+          response.push_back(buf[i]);
+        }
+
+        if((nbytes = send(new_fd, response.c_str(), http_header.length() + file.gcount(), 0)) == -1){
             perror("send");
           }
-          header = 1;
-        }
       } else{
         string response = "HTTP/1.1 404 Not Found\r\n\r\nError:";
         if((nbytes = send(new_fd, response.c_str(), response.length(), 0)) == -1){
