@@ -13,7 +13,7 @@
 #include <signal.h>
 #include <fstream>
 
-#define MAXBUFSIZE 500000
+#define MAXBUFSIZE 1000000
 #define BACKLOG 1000
 
 using namespace std;
