@@ -107,17 +107,15 @@ int main(int argc, char *argv[]){
       if((nbytes = recv(new_fd, temp, MAXBUFSIZE-1, 0)) == -1){
         perror("recv");
       }
-
+      cout << temp << "\n";
       int flag = 0;
-      int j = 0;
       for(int i = 0; i < strlen(temp); i++){
-        if(temp[i] == ' ' && flag == 0){
+        if(temp[i] == '/' && flag == 0){
           flag = 1;
           continue;
-        }
-        if(flag && temp[i] == ' '){
+        } if(flag && temp[i] == ' '){
           break;
-        } else if(flag && temp[i] != '/'){
+        } else if(flag){
           fname.push_back(temp[i]);
         }
       }
@@ -125,42 +123,42 @@ int main(int argc, char *argv[]){
       file.open(fname.c_str(), ios::in);
       file.seekg(0, file.end);
       int size = file.tellg();
-      // int total_sent = 0;
+      int total_sent = 0;
       file.seekg(0, file.beg);
-
+      cout << fname << "\n";
       // File is either found or not found
       if(file.is_open()){
         string http_header = "HTTP/1.1 200 OK\r\n\r\n";
-        // int header = 0;
+        int header = 0;
         // Loop to send package in chunks
-        // while(total_sent < size){
-        string response;
+        while(total_sent < size){
+          string response;
         // cout << http_header.length();
-        //   int chunk = ((size - total_sent) > (MAXBUFSIZE-1)) ? (MAXBUFSIZE-1) : (size - total_sent);
-        //   if(!header){
-        //     response = http_header;
-        //     chunk -= http_header.length();
-        //   }
-        //   int length = !header ? http_header.length() + chunk : chunk;
-        //   file.read(buf, chunk);
-        //   for(int i = 0; i < chunk; i++){
-        //     response.push_back(buf[i]);
-        //   }
-        //   total_sent += length - (length - chunk);
-        //   if((nbytes = send(new_fd, response.c_str(), length, 0)) == -1){
-        //     perror("send");
-        //   }
-        //   header = 1;
-        // }
-        response = http_header;
-        file.read(buf, MAXBUFSIZE-1);
-        for(int i = 0; i < file.gcount(); i++){
-          response.push_back(buf[i]);
-        }
-
-        if((nbytes = send(new_fd, response.c_str(), http_header.length() + file.gcount(), 0)) == -1){
+          int chunk = ((size - total_sent) > (MAXBUFSIZE-1)) ? (MAXBUFSIZE-1) : (size - total_sent);
+          if(!header){
+            response = http_header;
+            chunk -= http_header.length();
+          }
+          int length = !header ? http_header.length() + chunk : chunk;
+          file.read(buf, chunk);
+          for(int i = 0; i < chunk; i++){
+            response.push_back(buf[i]);
+          }
+          total_sent += length - (length - chunk);
+          if((nbytes = send(new_fd, response.c_str(), length, 0)) == -1){
             perror("send");
           }
+          header = 1;
+        }
+        // response = http_header;
+        // file.read(buf, MAXBUFSIZE-1);
+        // for(int i = 0; i < file.gcount(); i++){
+        //   response.push_back(buf[i]);
+        // }
+        //
+        // if((nbytes = send(new_fd, response.c_str(), http_header.length() + file.gcount(), 0)) == -1){
+        //     perror("send");
+        //   }
       } else{
         string response = "HTTP/1.1 404 Not Found\r\n\r\nError:";
         if((nbytes = send(new_fd, response.c_str(), response.length(), 0)) == -1){

@@ -105,39 +105,39 @@ int main(int argc, char *argv[]){
 
   // Receive file
   nbytes = 0;
-  // int header = 0;
-  // flag = 0;
-  // while((response = recv(sockfd, buf, MAXBUFSIZE-1, 0)) > 0){
-  //   for(int i = 0; i < response; i++){
-  //     // Process header
-  //     if(buf[i] == '\n' && buf[i-1] == '\r' && buf[i-2] == '\n' && buf[i-3] == '\r' && !flag){
-  //       // flag++;
-  //       flag = 1;
-  //       // if(flag == 2) header = 1;
-  //     } else if(flag == 1){
-  //       file.write(buf+i, 1);
-  //     }
-  //   }
-  //   nbytes += response;
-  // }
-  response = recv(sockfd, buf, MAXBUFSIZE-1, 0);
+  int header = 0;
+  flag = 0;
+  while((response = recv(sockfd, buf, MAXBUFSIZE-1, 0)) > 0){
+    for(int i = 0; i < response; i++){
+      // Process header
+      if(buf[i] == '\n' && buf[i-1] == '\r' && buf[i-2] == '\n' && buf[i-3] == '\r' && !flag){
+        // flag++;
+        flag = 1;
+        // if(flag == 2) header = 1;
+      } else if(flag == 1){
+        file.write(buf+i, 1);
+      }
+    }
+    nbytes += response;
+  }
+  // response = recv(sockfd, buf, MAXBUFSIZE-1, 0);
   if(response == -1){
     perror("recv");
     exit(1);
   }
-  int idx;
-  for(idx = 1; idx < MAXBUFSIZE+1; idx++){
-    if(buf[idx] == '\n' && buf[idx-1] == '\r' && buf[idx-2] == '\n' && buf[idx-3] == '\r'){
-      idx++;
-      break;
-    }
-  }
-  cout << idx;
-  for(int i = 0; i < (response - idx); i++){
-    // Process header
-    file.write(buf+i+idx, 1);
-  }
-  nbytes += response;
+  // int idx;
+  // for(idx = 1; idx < MAXBUFSIZE+1; idx++){
+  //   if(buf[idx] == '\n' && buf[idx-1] == '\r' && buf[idx-2] == '\n' && buf[idx-3] == '\r'){
+  //     idx++;
+  //     break;
+  //   }
+  // }
+  // cout << idx;
+  // for(int i = 0; i < (response - idx); i++){
+  //   // Process header
+  //   file.write(buf+i+idx, 1);
+  // }
+  // nbytes += response;
 
   file.close();
 
