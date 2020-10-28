@@ -21,7 +21,7 @@
 #include <sys/time.h>
 #include <errno.h>
 
-#define MSS 4096
+#define MSS 8192
 #define HEADER_SIZE 12
 #define BUF_SIZE 1024*1024
 #define MSG_SIZE 1024*1024
@@ -48,17 +48,15 @@ int s, slen;
 int dupACKcnt = 0;
 int cw = 1;
 double cw_f = 0;
-int sst = 200;
+int sst = 50;
 int base = 0;
 int lastSent = -1;
 state_t cur_state = S_S;
-int eRTT = 20000;
+int eRTT = 10000;
 int dRTT = 1;
 int sRTT = 0;
 uint64_t diff[BUF_SIZE];
 uint64_t sent[BUF_SIZE];
-uint64_t end[BUF_SIZE];
-int q[BUF_SIZE];
 int tIdx = 0;
 int lastIdx = 0;
 uint64_t prevTime = 0;
@@ -83,6 +81,7 @@ void sendMSG(int retransmit, FILE *fp, int bytesToTransfer){
   for(int i = 0; i < cw; i++){
     int seq = base + MSS*i;
     if(seq <= lastSent && !retransmit) continue;
+    if(seq > lastSent && retransmit) break;
     if(seq > bytesToTransfer) break;
 
     /* Create header */
@@ -94,6 +93,8 @@ void sendMSG(int retransmit, FILE *fp, int bytesToTransfer){
     numRead = fread(msg + HEADER_SIZE, 1, MSS, fp);
     packet_size = (seq + numRead) < bytesToTransfer ? numRead : bytesToTransfer - seq;
 
+    // printf("%d\n", seq);
+
     if((numBytes = sendto(s, msg, packet_size + HEADER_SIZE, 0, (struct sockaddr*)&si_other, slen)) == -1){
       diep("sendto");
     }
@@ -101,7 +102,6 @@ void sendMSG(int retransmit, FILE *fp, int bytesToTransfer){
     gettimeofday(&t, NULL);
     diff[tIdx] = ((t.tv_sec*1000000) + t.tv_usec) - prevTime;
     sent[tIdx] = ((t.tv_sec*1000000) + t.tv_usec);
-    q[tIdx] = seq;
     prevTime = sent[tIdx++];
 
     if(!retransmit) lastSent = seq; // Update pending packets

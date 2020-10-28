@@ -18,8 +18,8 @@
 #include <errno.h>
 
 #define BUF_SIZE 4*1024*1024
-#define MSS 4096
-#define BUF_LEN (BUF_SIZE / MSS)
+#define MSS 8192
+#define BUF_LEN BUF_SIZE / MSS
 #define WINDOW_SIZE 1024*1024
 #define HEADER_SIZE 12
 
@@ -59,15 +59,20 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
     socklen_t fromlen = sizeof(si_other);
     char window[WINDOW_SIZE];
     char buf[BUF_SIZE];
-    int slots[BUF_LEN];
+    int slots_1[BUF_LEN];
+    int slots_2[BUF_LEN];
+    int *cur_slot;
+    int *next_slot;
     header_t header;
     header_t ack_header;
     ack_header.ack = 0;
     int numBytes;
     int data_size;
     int idx;
+    int turn = 0;
     for(int i = 0; i < BUF_LEN; i++){
-      slots[i] = 0;
+      slots_1[i] = 0;
+      slots_2[i] = 0;
     }
 
     while(1){
@@ -84,8 +89,10 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
 
       if(header.seq >= ack_header.ack){
         idx = (header.seq - ack_header.ack) / MSS;
-        if(slots[idx] == 0){
-          slots[idx] = data_size;
+        cur_slot = turn ? slots_1 : slots_2;
+
+        if(cur_slot[idx] == 0){
+          cur_slot[idx] = data_size;
           memcpy(buf + (header.seq - ack_header.ack), window + HEADER_SIZE, data_size);
         }
       }
@@ -95,9 +102,9 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
         int size = 0;
         int i;
         for(i = 0; i < BUF_LEN; i++){
-          if(slots[i]){
-            ack_header.ack += slots[i];
-            size += slots[i];
+          if(cur_slot[i]){
+            ack_header.ack += cur_slot[i];
+            size += cur_slot[i];
           } else{
             break;
           }
@@ -105,10 +112,17 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
 
         fwrite(buf, 1, size, fp);
         memcpy(buf, buf + size, BUF_SIZE - size);
-        memcpy(slots, slots + i*sizeof(int), (BUF_LEN - i - 1)*sizeof(int));
-        for(int j = (BUF_LEN - i); j < BUF_LEN; j++){
-          slots[j] = 0;
+        // memcpy(slots, slots + i*sizeof(int), (BUF_LEN - i)*sizeof(int));
+        next_slot = turn ? slots_2 : slots_1;
+
+        for(int j = 0; j < BUF_LEN; j++){
+          if(j < (BUF_LEN - i))
+            next_slot[j] = cur_slot[j + i];
+          else
+            next_slot[j] = 0;
         }
+
+        turn = (turn + 1) % 2;
       }
 
       memcpy(window, &ack_header, HEADER_SIZE);
