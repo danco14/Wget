@@ -17,7 +17,9 @@
 #include <pthread.h>
 #include <errno.h>
 
-#define BUF_SIZE 1024*1024
+#define BUF_SIZE 4*1024*1024
+#define MSS 4096
+#define BUF_LEN (BUF_SIZE / MSS)
 #define WINDOW_SIZE 1024*1024
 #define HEADER_SIZE 12
 
@@ -57,11 +59,16 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
     socklen_t fromlen = sizeof(si_other);
     char window[WINDOW_SIZE];
     char buf[BUF_SIZE];
+    int slots[BUF_LEN];
     header_t header;
     header_t ack_header;
     ack_header.ack = 0;
     int numBytes;
     int data_size;
+    int idx;
+    for(int i = 0; i < BUF_LEN; i++){
+      slots[i] = 0;
+    }
 
     while(1){
       /* Get data */
@@ -75,13 +82,37 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
 
       data_size = numBytes - HEADER_SIZE;
 
+      if(header.seq >= ack_header.ack){
+        idx = (header.seq - ack_header.ack) / MSS;
+        if(slots[idx] == 0){
+          slots[idx] = data_size;
+          memcpy(buf + (header.seq - ack_header.ack), window + HEADER_SIZE, data_size);
+        }
+      }
+
       /* Send ACK */
       if(header.seq == ack_header.ack){
-        ack_header.ack = header.seq + data_size;
-        fwrite(window + HEADER_SIZE, 1, data_size, fp);
+        int size = 0;
+        int i;
+        for(i = 0; i < BUF_LEN; i++){
+          if(slots[i]){
+            ack_header.ack += slots[i];
+            size += slots[i];
+          } else{
+            break;
+          }
+        }
+
+        fwrite(buf, 1, size, fp);
+        memcpy(buf, buf + size, BUF_SIZE - size);
+        memcpy(slots, slots + i*sizeof(int), (BUF_LEN - i - 1)*sizeof(int));
+        for(int j = (BUF_LEN - i); j < BUF_LEN; j++){
+          slots[j] = 0;
+        }
       }
-      memcpy(buf, &ack_header, HEADER_SIZE);
-      if(sendto(s, buf, HEADER_SIZE, 0, (struct sockaddr*)&si_other, slen) == -1){
+
+      memcpy(window, &ack_header, HEADER_SIZE);
+      if(sendto(s, window, HEADER_SIZE, 0, (struct sockaddr*)&si_other, slen) == -1){
         diep("sendto");
       }
     }

@@ -21,7 +21,7 @@
 #include <sys/time.h>
 #include <errno.h>
 
-#define MSS 1024
+#define MSS 4096
 #define HEADER_SIZE 12
 #define BUF_SIZE 1024*1024
 #define MSG_SIZE 1024*1024
@@ -48,7 +48,7 @@ int s, slen;
 int dupACKcnt = 0;
 int cw = 1;
 double cw_f = 0;
-int sst = 64;
+int sst = 200;
 int base = 0;
 int lastSent = -1;
 state_t cur_state = S_S;
@@ -69,7 +69,7 @@ void diep(char *s) {
     exit(1);
 }
 
-void sendMSG(int retransmit, FILE *fp, int bytesToTransfer, int reseq){
+void sendMSG(int retransmit, FILE *fp, int bytesToTransfer){
   char msg[MSG_SIZE];
   int numRead;
   int numBytes;
@@ -161,7 +161,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
     struct timeval timeout;
 
     /* Send first packet */
-    sendMSG(TRANSMIT, fp, bytesToTransfer, 0);
+    sendMSG(TRANSMIT, fp, bytesToTransfer);
     set_timer(&timeout, 0);
 
     /* Transmission */
@@ -178,11 +178,11 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
       if(cw >= sst) cur_state = C_A;
 
       if((errno == EAGAIN || errno == EWOULDBLOCK) && response == -1){ // TIMEOUT
+        sendMSG(RETRANSMIT, fp, bytesToTransfer);
         sst = cw / 2;
         cw = 1;
         cw_f = 0;
         dupACKcnt = 0;
-        sendMSG(RETRANSMIT, fp, bytesToTransfer, q[lastIdx]);
         set_timer(&timeout, 0);
         lastIdx++;
         cur_state = S_S;
@@ -206,23 +206,23 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
         lastIdx += (header.ack - base) / MSS;
         base = header.ack;
         if(base >= bytesToTransfer) break;
-        sendMSG(TRANSMIT, fp, bytesToTransfer, 0);
+        sendMSG(TRANSMIT, fp, bytesToTransfer);
         set_timer(&timeout, 0);
       }
       else if(header.ack == base){ // DUP_ACK
         switch(cur_state){
           case F_R:
             cw += 1;
-            sendMSG(TRANSMIT, fp, bytesToTransfer, 0);
+            sendMSG(TRANSMIT, fp, bytesToTransfer);
             break;
           case S_S: case C_A:
             dupACKcnt++;
             set_timer(&timeout, 1);
             if(dupACKcnt == 3){
+              sendMSG(RETRANSMIT, fp, bytesToTransfer);
               sst = cw / 2;
               cw = sst + 3;
               cw_f = 0;
-              sendMSG(RETRANSMIT, fp, bytesToTransfer, header.ack);
               cur_state = F_R;
             }
             break;
