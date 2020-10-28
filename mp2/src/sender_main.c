@@ -95,7 +95,7 @@ void sendMSG(int retransmit, FILE *fp, int bytesToTransfer, int reseq){
     numRead = fread(msg + HEADER_SIZE, 1, MSS, fp);
     packet_size = (seq + numRead) < bytesToTransfer ? numRead : bytesToTransfer - seq;
 
-    printf("seq: %d\n", seq);
+    // printf("seq: %d\n", seq);
 
     if((numBytes = sendto(s, msg, packet_size + HEADER_SIZE, 0, (struct sockaddr*)&si_other, slen)) == -1){
       diep("sendto");
@@ -118,14 +118,20 @@ void set_timer(struct timeval *timeout, int is_dup){
   gettimeofday(&t, NULL);
   uint64_t cur_time = (t.tv_sec*1000000) + t.tv_usec;
   if(is_dup){
-    timeout->tv_sec = ((eRTT + 4*dRTT) - (cur_time - sent[lastIdx])) / 1000000;
-    timeout->tv_usec = ((eRTT + 4*dRTT) - (cur_time - sent[lastIdx])) % 1000000;
+    // timeout->tv_sec = ((eRTT + 4*dRTT) - (cur_time - sent[lastIdx])) / 1000000;
+    // timeout->tv_usec = ((eRTT + 4*dRTT) - (cur_time - sent[lastIdx])) % 1000000;
+    timeout->tv_sec = (20000 - (cur_time - sent[lastIdx])) / 1000000;
+    timeout->tv_usec = (20000 - (cur_time - sent[lastIdx])) % 1000000;
   } else {
     sRTT = cur_time - sent[lastIdx];
     eRTT = (1 - ALPHA)*eRTT + ALPHA*sRTT;
     dRTT = (1 - BETA)*dRTT + BETA*abs(eRTT - sRTT);
-    timeout->tv_sec = ((eRTT + 4*dRTT) - sRTT + diff[lastIdx]) / 1000000;
-    timeout->tv_usec = ((eRTT + 4*dRTT) - sRTT + diff[lastIdx]) % 1000000;
+    // printf("%d\n", (eRTT + 4*dRTT));
+    // printf("%d\n", sRTT);
+    // timeout->tv_sec = ((eRTT + 4*dRTT) - sRTT + diff[lastIdx]) / 1000000;
+    // timeout->tv_usec = ((eRTT + 4*dRTT) - sRTT + diff[lastIdx]) % 1000000;
+    timeout->tv_sec = (20000 - sRTT + diff[lastIdx]) / 1000000;
+    timeout->tv_usec = (20000 - sRTT + diff[lastIdx]) % 1000000;
   }
 
   // printf("%d", timeout->tv_sec);
@@ -187,6 +193,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
         cw_f = 0;
         dupACKcnt = 0;
         sendMSG(RETRANSMIT, fp, bytesToTransfer, q[lastIdx]);
+        // printf("timeTimer\n");
         set_timer(&timeout, 0);
         lastIdx++;
         cur_state = S_S;
@@ -212,6 +219,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
         // printf("base: %d\n", base);
         if(base >= bytesToTransfer) break;
         sendMSG(TRANSMIT, fp, bytesToTransfer, 0);
+        // printf("ackTimer\n");
         set_timer(&timeout, 0);
       }
       else if(header.ack == base){ // DUP_ACK
@@ -222,6 +230,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
             break;
           case S_S: case C_A:
             dupACKcnt++;
+            // printf("dupTimer\n");
             set_timer(&timeout, 1);
             if(dupACKcnt == 3){
               sst = cw / 2;
