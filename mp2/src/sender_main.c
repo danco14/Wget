@@ -81,7 +81,6 @@ void sendMSG(int retransmit, FILE *fp, int bytesToTransfer, int reseq){
 
   /* Send packet(s) */
   for(int i = 0; i < cw; i++){
-    // int seq = retransmit ? reseq : base + MSS*i;
     int seq = base + MSS*i;
     if(seq <= lastSent && !retransmit) continue;
     if(seq > bytesToTransfer) break;
@@ -95,8 +94,6 @@ void sendMSG(int retransmit, FILE *fp, int bytesToTransfer, int reseq){
     numRead = fread(msg + HEADER_SIZE, 1, MSS, fp);
     packet_size = (seq + numRead) < bytesToTransfer ? numRead : bytesToTransfer - seq;
 
-    // printf("seq: %d\n", seq);
-
     if((numBytes = sendto(s, msg, packet_size + HEADER_SIZE, 0, (struct sockaddr*)&si_other, slen)) == -1){
       diep("sendto");
     }
@@ -108,7 +105,6 @@ void sendMSG(int retransmit, FILE *fp, int bytesToTransfer, int reseq){
     prevTime = sent[tIdx++];
 
     if(!retransmit) lastSent = seq; // Update pending packets
-    // if(i == 0) retransmit = 0;
   }
 
   return;
@@ -118,23 +114,16 @@ void set_timer(struct timeval *timeout, int is_dup){
   gettimeofday(&t, NULL);
   uint64_t cur_time = (t.tv_sec*1000000) + t.tv_usec;
   if(is_dup){
-    // timeout->tv_sec = ((eRTT + 4*dRTT) - (cur_time - sent[lastIdx])) / 1000000;
-    // timeout->tv_usec = ((eRTT + 4*dRTT) - (cur_time - sent[lastIdx])) % 1000000;
-    timeout->tv_sec = (20000 - (cur_time - sent[lastIdx])) / 1000000;
-    timeout->tv_usec = (20000 - (cur_time - sent[lastIdx])) % 1000000;
+    timeout->tv_usec = ((eRTT + 4*dRTT) - (cur_time - sent[lastIdx])) % 1000000;
+    timeout->tv_sec = 0;
   } else {
     sRTT = cur_time - sent[lastIdx];
     eRTT = (1 - ALPHA)*eRTT + ALPHA*sRTT;
     dRTT = (1 - BETA)*dRTT + BETA*abs(eRTT - sRTT);
-    // printf("%d\n", (eRTT + 4*dRTT));
-    // printf("%d\n", sRTT);
-    // timeout->tv_sec = ((eRTT + 4*dRTT) - sRTT + diff[lastIdx]) / 1000000;
-    // timeout->tv_usec = ((eRTT + 4*dRTT) - sRTT + diff[lastIdx]) % 1000000;
-    timeout->tv_sec = (20000 - sRTT + diff[lastIdx]) / 1000000;
-    timeout->tv_usec = (20000 - sRTT + diff[lastIdx]) % 1000000;
+    timeout->tv_usec = ((eRTT + 4*dRTT) - sRTT + diff[lastIdx]) % 1000000;
+    timeout->tv_sec = 0;
   }
 
-  // printf("%d", timeout->tv_sec);
   if(setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (char *)timeout, sizeof(struct timeval)) == -1){
     diep("setsockopt");
   }
@@ -178,22 +167,22 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
     /* Transmission */
     while(base < bytesToTransfer){
       /* Handle ACKs */
-      response = recvfrom(s, buf, BUF_SIZE-1, 0, (struct sockaddr*)&si_other, &fromlen);
+      if((response = recvfrom(s, buf, BUF_SIZE-1, 0, (struct sockaddr*)&si_other, &fromlen)) == -1){
+        if(errno != EAGAIN && errno != EWOULDBLOCK) diep("recvfrom");
+      }
 
       /* Parse ACK */
       memcpy(&header, buf, HEADER_SIZE);
-      printf("ack: %d\n", header.ack);
+
       /* Handle event */
       if(cw >= sst) cur_state = C_A;
 
-      if(response == -1){ // TIMEOUT
-        printf("here\n");
+      if((errno == EAGAIN || errno == EWOULDBLOCK) && response == -1){ // TIMEOUT
         sst = cw / 2;
         cw = 1;
         cw_f = 0;
         dupACKcnt = 0;
         sendMSG(RETRANSMIT, fp, bytesToTransfer, q[lastIdx]);
-        // printf("timeTimer\n");
         set_timer(&timeout, 0);
         lastIdx++;
         cur_state = S_S;
@@ -216,10 +205,8 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
         dupACKcnt = 0;
         lastIdx += (header.ack - base) / MSS;
         base = header.ack;
-        // printf("base: %d\n", base);
         if(base >= bytesToTransfer) break;
         sendMSG(TRANSMIT, fp, bytesToTransfer, 0);
-        // printf("ackTimer\n");
         set_timer(&timeout, 0);
       }
       else if(header.ack == base){ // DUP_ACK
@@ -230,7 +217,6 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
             break;
           case S_S: case C_A:
             dupACKcnt++;
-            // printf("dupTimer\n");
             set_timer(&timeout, 1);
             if(dupACKcnt == 3){
               sst = cw / 2;
@@ -241,6 +227,8 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
             }
             break;
         }
+      } else { // Discard
+        set_timer(&timeout, 1);
       }
     }
 
@@ -248,38 +236,46 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
     fclose(fp);
     printf("Beginning FIN\n");
 
-    /* Send FIN */
-    header.flags = 1;
-    memcpy(buf, &header, HEADER_SIZE);
-    if(sendto(s, buf, HEADER_SIZE, 0, (struct sockaddr*)&si_other, slen) == -1){
-      diep("sendto");
-    }
+    int fin = 0;
+    int ack = 0;
 
-    /* Receive ACK and FIN */
-    timeout.tv_sec = 0;
     timeout.tv_usec = 500000;
     if(setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) == -1){
       diep("setsockopt");
     }
-    if(recvfrom(s, buf, BUF_SIZE-1, 0, (struct sockaddr*)&si_other, &fromlen) == -1){
-      diep("recvfrom");
-    }
-    if(recvfrom(s, buf, BUF_SIZE-1, 0, (struct sockaddr*)&si_other, &fromlen) == -1){
-      diep("recvfrom");
-    }
-
-    memcpy(buf, &header, HEADER_SIZE);
-    if(sendto(s, buf, HEADER_SIZE, 0, (struct sockaddr*)&si_other, slen) == -1){
-      diep("sendto");
-    }
-
-    timeout.tv_sec = 0;
-    timeout.tv_usec = 5000;
-    if(setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) == -1){
-      diep("setsockopt");
-    }
-    if(recvfrom(s, buf, BUF_SIZE-1, 0, (struct sockaddr*)&si_other, &fromlen) == -1){
-      if(errno != EAGAIN && errno != EWOULDBLOCK) diep("recvfrom");
+    while(1){
+      /* Send FIN */
+      if(!ack){
+        header.flags = 1;
+        memcpy(buf, &header, HEADER_SIZE);
+        if(sendto(s, buf, HEADER_SIZE, 0, (struct sockaddr*)&si_other, slen) == -1){
+          diep("sendto");
+        }
+        if(recvfrom(s, buf, BUF_SIZE-1, 0, (struct sockaddr*)&si_other, &fromlen) == -1){
+          if(errno != EAGAIN && errno != EWOULDBLOCK) diep("recvfrom");
+          continue;
+        }
+        memcpy(&header, buf, HEADER_SIZE);
+        if(header.flags == 1) fin = 1;
+        else ack = 1;
+      }
+      if(recvfrom(s, buf, BUF_SIZE-1, 0, (struct sockaddr*)&si_other, &fromlen) == -1){
+        if(errno != EAGAIN && errno != EWOULDBLOCK) diep("recvfrom");
+        continue;
+      }
+      memcpy(&header, buf, HEADER_SIZE);
+      if(header.flags == 1) fin = 1;
+      else ack = 1;
+      if(fin && ack){
+        memcpy(buf, &header, HEADER_SIZE);
+        if(sendto(s, buf, HEADER_SIZE, 0, (struct sockaddr*)&si_other, slen) == -1){
+          diep("sendto");
+        }
+        if(recvfrom(s, buf, BUF_SIZE-1, 0, (struct sockaddr*)&si_other, &fromlen) == -1){
+          if(errno != EAGAIN && errno != EWOULDBLOCK) diep("recvfrom");
+        }
+        break;
+      }
     }
 
     printf("Closing the socket\n");

@@ -15,6 +15,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <errno.h>
 
 #define BUF_SIZE 1024*1024
 #define WINDOW_SIZE 1024*1024
@@ -61,9 +62,6 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
     ack_header.ack = 0;
     int numBytes;
     int data_size;
-    // int buf_top = 0;
-    // int buf_len = 0;
-    // int buf_seq = 0;
 
     while(1){
       /* Get data */
@@ -76,10 +74,6 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
       if(header.flags == 1) break;
 
       data_size = numBytes - HEADER_SIZE;
-
-      /* Write to file */
-      // fseek(fp, header.seq, SEEK_SET);
-      // fwrite(window + HEADER_SIZE, 1, data_size, fp);
 
       /* Send ACK */
       if(header.seq == ack_header.ack){
@@ -96,16 +90,27 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
     fclose(fp);
     printf("Beginning FIN\n");
 
-    if(sendto(s, &ack_header, HEADER_SIZE, 0, (struct sockaddr*)&si_other, slen) == -1){
-      diep("sendto");
-    }
-    ack_header.flags = 1;
-    if(sendto(s, &ack_header, HEADER_SIZE, 0, (struct sockaddr*)&si_other, slen) == -1){
-      diep("sendto");
+    struct timeval t;
+    t.tv_sec = 0;
+    t.tv_usec = 500000;
+    if(setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (char *)&t, sizeof(t)) == -1){
+      diep("setsockopt");
     }
 
-    if(recvfrom(s, window, WINDOW_SIZE-1, 0, (struct sockaddr*)&si_other, &fromlen) == -1){
-      diep("recvfrom");
+    while(1){
+      if(sendto(s, &ack_header, HEADER_SIZE, 0, (struct sockaddr*)&si_other, slen) == -1){
+        diep("sendto");
+      }
+      ack_header.flags = 1;
+      if(sendto(s, &ack_header, HEADER_SIZE, 0, (struct sockaddr*)&si_other, slen) == -1){
+        diep("sendto");
+      }
+
+      if(recvfrom(s, window, WINDOW_SIZE-1, 0, (struct sockaddr*)&si_other, &fromlen) == -1){
+        if(errno != EAGAIN && errno != EWOULDBLOCK) diep("recvfrom");
+        continue;
+      }
+      break;
     }
 
     close(s);
