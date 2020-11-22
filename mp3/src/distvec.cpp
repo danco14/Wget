@@ -7,6 +7,7 @@
 #include <sstream>
 #include <set>
 #include <utility>
+#include <algorithm>
 
 using namespace std;
 
