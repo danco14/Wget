@@ -150,7 +150,7 @@ int main(int argc, char** argv) {
 
         reverse(p.begin(), p.end());
 
-        if(p[0] == s){
+        if(!p.empty()){
           out_file << "\n" << "from " << s << " to " << d << " cost " << dist_dict[s-1][d-1] << " hops";
 
           for(int i = 0; i < p.size(); i++){
