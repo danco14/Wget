@@ -99,6 +99,11 @@ int main(int argc, char** argv) {
               queue.insert(make_pair(new_dist, u));
               dist[u] = new_dist;
               path[u] = v;
+            } else if(new_dist == dist[u]){
+              if(v < path[u]){
+                dist[u] = new_dist;
+                path[u] = v;
+              }
             }
           }
         }
