@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
       //  Loop through each vertex
       for(int s = 0; s < V; s++){
         // Dijkstra's algorithm
-        vector<int> dist(V, INT_MAX);
+        vector<int> dist(V, 1000);
         vector<int> path(V, -1);
         set<pair<int,int>> queue;
         int list[V];
@@ -104,7 +104,7 @@ int main(int argc, char** argv) {
 
         // Write topology entries to file
         for(int i = 0; i < V; i++){
-          if(dist[i] == INT_MAX) continue;
+          if(dist[i] == 1000) continue;
 
           out_file << i + 1;
 
